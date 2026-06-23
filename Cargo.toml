@@ -1,0 +1,17 @@
+[package]
+name = "sshenv"
+version = "0.1.0"
+edition = "2021"
+description = "SSH key profile manager — switch between SSH key pairs"
+license = "MIT"
+repository = "https://github.com/gndps/sshenv"
+homepage = "https://github.com/gndps/sshenv"
+
+[[bin]]
+name = "sshenv"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
