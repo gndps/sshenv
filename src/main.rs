@@ -707,6 +707,10 @@ fn main() {
             print_help();
         }
 
+        "--version" | "-V" => {
+            println!("sshenv {}", env!("CARGO_PKG_VERSION"));
+        }
+
         other => {
             eprintln!("Unknown command: '{}'. Run 'sshenv help' for usage.", other);
             process::exit(1);
