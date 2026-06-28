@@ -519,17 +519,19 @@ fn cmd_inject(host: &str, profiles: &[&str]) {
         if profile == "self" {
             // Copy sshenv binary to remote
             println!("Injecting sshenv binary to {}...", host);
+            let remote_path = format!("{}:~/.local/bin/sshenv", host);
             let status = Command::new("rsync")
-                .args([
-                    "-avz",
-                    "--chmod=755",
-                    self_bin.to_str().unwrap(),
-                    &format!("{}:~/.local/bin/sshenv", host),
-                ])
+                .args(["-avz", self_bin.to_str().unwrap(), &remote_path])
                 .status()
                 .expect("Failed to run rsync");
             if !status.success() {
                 eprintln!("Warning: rsync for 'self' failed.");
+            } else {
+                // Ensure the binary is executable on the remote (rsync -a preserves
+                // local perms, but the local binary may lack x bit in some installs)
+                let _ = Command::new("ssh")
+                    .args([host, "chmod 755 ~/.local/bin/sshenv"])
+                    .status();
             }
         } else if profile == "active" {
             // Copy current ~/.ssh/id_* files
@@ -564,8 +566,10 @@ fn cmd_inject(host: &str, profiles: &[&str]) {
             // Ensure trailing slash on source so rsync copies contents into dest dir
             let src = format!("{}/", prof_dir.display());
             let dst = format!("{}:~/.ssh/archive/{}/", host, profile);
+            // Archive files are already 0o444; rsync -a preserves permissions.
+            // --chmod is not supported on macOS's bundled rsync 2.x.
             let status = Command::new("rsync")
-                .args(["-avz", "--chmod=444", &src, &dst])
+                .args(["-avz", &src, &dst])
                 .status()
                 .expect("Failed to run rsync");
             if !status.success() {
