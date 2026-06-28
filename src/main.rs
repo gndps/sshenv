@@ -519,6 +519,17 @@ fn cmd_inject(host: &str, profiles: &[&str]) {
         if profile == "self" {
             // Copy sshenv binary to remote
             println!("Injecting sshenv binary to {}...", host);
+
+            // Create remote directory first
+            let mkdir_status = Command::new("ssh")
+                .args([host, "mkdir -p ~/.local/bin"])
+                .status()
+                .expect("Failed to run ssh mkdir");
+            if !mkdir_status.success() {
+                eprintln!("Warning: could not create remote ~/.local/bin, skipping.");
+                continue;
+            }
+
             let remote_path = format!("{}:~/.local/bin/sshenv", host);
             let status = Command::new("rsync")
                 .args(["-avz", self_bin.to_str().unwrap(), &remote_path])
@@ -527,8 +538,7 @@ fn cmd_inject(host: &str, profiles: &[&str]) {
             if !status.success() {
                 eprintln!("Warning: rsync for 'self' failed.");
             } else {
-                // Ensure the binary is executable on the remote (rsync -a preserves
-                // local perms, but the local binary may lack x bit in some installs)
+                // Ensure the binary is executable on the remote
                 let _ = Command::new("ssh")
                     .args([host, "chmod 755 ~/.local/bin/sshenv"])
                     .status();
@@ -563,9 +573,21 @@ fn cmd_inject(host: &str, profiles: &[&str]) {
                 continue;
             }
             println!("Injecting profile '{}' to {}...", profile, host);
+
+            // Create remote directory first — rsync won't mkdir -p parent paths
+            let remote_dir = format!("~/.ssh/archive/{}", profile);
+            let mkdir_status = Command::new("ssh")
+                .args([host, &format!("mkdir -p {}", remote_dir)])
+                .status()
+                .expect("Failed to run ssh mkdir");
+            if !mkdir_status.success() {
+                eprintln!("Warning: could not create remote directory '{}', skipping.", remote_dir);
+                continue;
+            }
+
             // Ensure trailing slash on source so rsync copies contents into dest dir
             let src = format!("{}/", prof_dir.display());
-            let dst = format!("{}:~/.ssh/archive/{}/", host, profile);
+            let dst = format!("{}:{}/", host, remote_dir);
             // Archive files are already 0o444; rsync -a preserves permissions.
             // --chmod is not supported on macOS's bundled rsync 2.x.
             let status = Command::new("rsync")
