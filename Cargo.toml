@@ -1,6 +1,6 @@
 [package]
 name = "sshenv"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "SSH key profile manager — switch between SSH key pairs"
 license = "MIT"

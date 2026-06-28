@@ -302,27 +302,43 @@ fn cmd_delete(profile: &str, force: bool) {
 fn cmd_new() {
     let mut stdout = io::stdout();
 
-    // Key type
+    // 1. Profile name — first, so the key goes straight into the archive
+    print!("Profile name: ");
+    stdout.flush().unwrap();
+    let mut profile_input = String::new();
+    io::stdin().read_line(&mut profile_input).unwrap();
+    let profile = profile_input.trim().to_string();
+    if profile.is_empty() {
+        eprintln!("Error: profile name cannot be empty.");
+        process::exit(1);
+    }
+
+    let prof_dir = profile_dir(&profile);
+    if prof_dir.exists() {
+        eprintln!("Error: profile '{}' already exists. Choose a different name or delete it first.", profile);
+        process::exit(1);
+    }
+
+    // 2. Key type
     print!("Key type [rsa/ed25519] (default: ed25519): ");
     stdout.flush().unwrap();
     let mut key_type_input = String::new();
     io::stdin().read_line(&mut key_type_input).unwrap();
-    let key_type_input = key_type_input.trim().to_lowercase();
-    let key_type = if key_type_input == "rsa" { "rsa" } else { "ed25519" };
+    let key_type = if key_type_input.trim().to_lowercase() == "rsa" { "rsa" } else { "ed25519" };
 
-    // Comment (optional)
+    // 3. Comment (optional)
     print!("Comment (optional, e.g. user@host): ");
     stdout.flush().unwrap();
     let mut comment = String::new();
     io::stdin().read_line(&mut comment).unwrap();
     let comment = comment.trim().to_string();
 
-    let ssh = ssh_dir();
-    let key_name = match key_type {
-        "rsa" => "id_rsa",
-        _ => "id_ed25519",
-    };
-    let key_path = ssh.join(key_name);
+    // Create profile directory and generate key directly into it
+    fs::create_dir_all(&prof_dir).expect("Failed to create profile directory");
+
+    let key_name = if key_type == "rsa" { "id_rsa" } else { "id_ed25519" };
+    let key_path = prof_dir.join(key_name);
+    let pub_key_path = prof_dir.join(format!("{}.pub", key_name));
 
     let mut keygen_args = vec![
         "-t".to_string(),
@@ -335,7 +351,7 @@ fn cmd_new() {
         keygen_args.push(comment);
     }
 
-    println!("Generating {} key...", key_type);
+    println!("Generating {} key for profile '{}'...", key_type, profile);
     let status = Command::new("ssh-keygen")
         .args(&keygen_args)
         .status()
@@ -343,21 +359,23 @@ fn cmd_new() {
 
     if !status.success() {
         eprintln!("Error: ssh-keygen failed.");
+        let _ = fs::remove_dir_all(&prof_dir);
         process::exit(1);
     }
 
-    // Write unknown activessh
-    let activessh = ssh.join("activessh");
-    fs::write(&activessh, "<unknown>").expect("Failed to write activessh");
-
-    set_private_key_perms(&key_path);
-    let pub_path = ssh.join(format!("{}.pub", key_name));
-    if pub_path.exists() {
-        set_pub_key_perms(&pub_path);
+    // Archive permissions — read-only in the store
+    set_readonly(&key_path);
+    if pub_key_path.exists() {
+        set_readonly(&pub_key_path);
     }
 
-    println!("New {} key generated at {}", key_type, key_path.display());
-    println!("Profile set to '<unknown>'. Run 'sshenv init <profile>' to archive it.");
+    // Write activessh marker inside the archive
+    let marker = prof_dir.join("activessh");
+    fs::write(&marker, &profile).expect("Failed to write activessh marker");
+
+    println!();
+    println!("Profile '{}' created at {}.", profile, prof_dir.display());
+    println!("Key is NOT active. Run 'sshenv activate {}' to use it.", profile);
 }
 
 fn cmd_clear(force: bool) {
@@ -583,7 +601,10 @@ COMMANDS:
         Delete ~/.ssh/archive/<profile>/. Requires -f.
 
     new
-        Interactive: prompt for key type, generate new SSH key pair.
+        Interactive: prompt for profile name (first), key type, and comment.
+        Generates key directly into ~/.ssh/archive/<profile>/ — never
+        overwrites your active ~/.ssh/id_* keys. Key is NOT activated;
+        run 'sshenv activate <profile>' when ready.
 
     clear [-f]
         Remove current ~/.ssh/id_* files. Requires -f if keys are not archived.
