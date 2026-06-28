@@ -215,12 +215,20 @@ fn cmd_activate(profile: &str) {
     let (priv_key, pub_key) = key_pair.unwrap();
 
     // Copy private key to ~/.ssh/
+    // Make writable first — fs::copy on macOS (copyfile) propagates source
+    // permissions (0o444 from the archive), so an existing dest may be read-only.
     let dest_priv = ssh.join(priv_key.file_name().unwrap());
+    if dest_priv.exists() {
+        let _ = fs::set_permissions(&dest_priv, fs::Permissions::from_mode(0o600));
+    }
     fs::copy(&priv_key, &dest_priv).expect("Failed to copy private key");
     set_private_key_perms(&dest_priv);
 
     // Copy public key to ~/.ssh/
     let dest_pub = ssh.join(pub_key.file_name().unwrap());
+    if dest_pub.exists() {
+        let _ = fs::set_permissions(&dest_pub, fs::Permissions::from_mode(0o644));
+    }
     fs::copy(&pub_key, &dest_pub).expect("Failed to copy public key");
     set_pub_key_perms(&dest_pub);
 
